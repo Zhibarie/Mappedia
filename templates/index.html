@@ -1592,6 +1592,8 @@ function setupCanvas(w, h) {
   // container width: 100% at zoom=1, scaled at zoom>1 (enables panning)
   const mc   = $("map-container");
   if (mc) {
+  const wrap = $("canvas-wrap");
+  if (mc && wrap) {
     // Explicit pixel width avoids fractional CSS widths that can produce tile seams on Chrome mobile.
     mc.style.width = displayW + "px";
   }
