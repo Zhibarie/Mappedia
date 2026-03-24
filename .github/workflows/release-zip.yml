@@ -1,0 +1,57 @@
+name: Release ZIP Bundle
+
+on:
+  push:
+    branches:
+      - 'main'
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-zip:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Determine build ref and zip name
+        id: meta
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            BUILD_REF="${GITHUB_REF_NAME}"
+            ZIP_NAME="Mappedia-${BUILD_REF}.zip"
+          else
+            SHORT_SHA="$(git rev-parse --short=7 "${GITHUB_SHA}")"
+            BUILD_REF="${GITHUB_SHA}"
+            ZIP_NAME="Mappedia-main-${SHORT_SHA}.zip"
+          fi
+          echo "build_ref=$BUILD_REF" >> "$GITHUB_OUTPUT"
+          echo "zip_name=$ZIP_NAME" >> "$GITHUB_OUTPUT"
+
+      - name: Build ZIP bundle from tracked files
+        run: |
+          BUILD_REF="${{ steps.meta.outputs.build_ref }}"
+          ZIP_NAME="${{ steps.meta.outputs.zip_name }}"
+          bash scripts/build_release_zip.sh "$BUILD_REF" "$ZIP_NAME"
+
+      - name: Upload ZIP artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.meta.outputs.zip_name }}
+          path: ${{ steps.meta.outputs.zip_name }}
+          if-no-files-found: error
+
+      - name: Publish GitHub Release + upload ZIP
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          generate_release_notes: true
+          files: ${{ steps.meta.outputs.zip_name }}
