@@ -47,6 +47,8 @@ jobs:
           git archive \
             --format=zip \
             --output "${{ steps.meta.outputs.zip_name }}" \
+            "${{ steps.meta.outputs.tag }}" \
+            . ':(exclude).github' ':(exclude).github/**'
             "${{ steps.meta.outputs.tag }}"
 
       - name: Publish GitHub Release + upload ZIP
