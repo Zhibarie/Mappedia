@@ -95,6 +95,7 @@ def _snapshot() -> Dict[str, Any]:
             "num_height_levels": int(state.num_height_levels),
             "num_ocean_levels":  int(state.num_ocean_levels),
             "height_region_scale": float(getattr(state, "height_region_scale", 1.0)),
+            "region_metrics": getattr(state, "region_metrics", {}) or {},
             "num_command_centers": int(state.num_command_centers),
             "num_resource_pulls":  int(state.num_resource_pulls),
             "completed_step": int(state.completed_step),

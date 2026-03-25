@@ -424,9 +424,17 @@ def run_height_ocean(state: WizardState, seed=None, preview_cb=None):
     else:
         sea_dist = sea_dist_raw
 
-    # Noise adds organic variation; distance drives the broad level structure.
-    land_score = (0.65 * land_dist) + (0.35 * noise01)
-    sea_score  = (0.65 * sea_dist)  + (0.35 * (1.0 - noise01))
+    # Region parameter must feel impactful: increase distance dominance at higher region,
+    # and increase noise dominance at lower region.
+    region_alpha = float(np.clip((region_scale - 0.1) / (3.0 - 0.1), 0.0, 1.0))
+    land_dist_w = 0.45 + 0.45 * region_alpha
+    sea_dist_w  = 0.50 + 0.40 * region_alpha
+    land_noise_w = 1.0 - land_dist_w
+    sea_noise_w  = 1.0 - sea_dist_w
+
+    # Noise adds organic variation; distance drives broad level structure.
+    land_score = (land_dist_w * land_dist) + (land_noise_w * noise01)
+    sea_score  = (sea_dist_w * sea_dist)  + (sea_noise_w * (1.0 - noise01))
 
     # Smooth land score so band edges are not pixelated.
     scalar_sigma = max(0.5, perlin_sigma * 0.4)
@@ -531,6 +539,19 @@ def run_height_ocean(state: WizardState, seed=None, preview_cb=None):
         if preview_cb:
             preview_cb("wall_bias", height_map.copy())
 
+    # Region-derived slope map + metrics (used by placement + UI diagnostics).
+    gy, gx = np.gradient(height_map.astype(float))
+    slope_map = np.clip(np.hypot(gx, gy), 0.0, 2.0)
+    state.region_slope_map = slope_map.astype(np.float32)
+    land_vals = slope_map[land_mask] if np.any(land_mask) else slope_map.ravel()
+    state.region_metrics = {
+        "region_scale": float(region_scale),
+        "mean_slope": float(np.mean(land_vals) if land_vals.size else 0.0),
+        "p95_slope": float(np.quantile(land_vals, 0.95) if land_vals.size else 0.0),
+        "land_dist_weight": float(land_dist_w),
+        "band_tiles": float(band_tiles),
+    }
+
     state.height_map = height_map
     state.completed_step = max(state.completed_step, int(WizardStep.HEIGHT_OCEAN))
 
@@ -591,7 +612,7 @@ def run_place_cc_manual(state: WizardState, row, col, mirrored=True):
     if state.units_matrix is not None and state.units_matrix[row, col] > 0:
         return [], 0
     if state.items_matrix is not None:
-        cc_clearance = 2
+        cc_clearance = int(np.clip(np.ceil(2 * _local_region_penalty(state, row, col)), 2, 5))
         y_min = max(0, row - cc_clearance); y_max = min(h, row + cc_clearance + 1)
         x_min = max(0, col - cc_clearance); x_max = min(w, col + cc_clearance + 1)
         if np.any(state.items_matrix[y_min:y_max, x_min:x_max] != 0):
@@ -790,7 +811,7 @@ def run_place_resource_manual(state: WizardState, row, col, mirrored=True):
     if height_map[row, col] <= 0:
         return []
     if state.units_matrix is not None:
-        cc_clearance = 4
+        cc_clearance = int(np.clip(np.ceil(4 * _local_region_penalty(state, row, col)), 4, 8))
         y_min = max(0, row - cc_clearance); y_max = min(h, row + cc_clearance + 1)
         x_min = max(0, col - cc_clearance); x_max = min(w, col + cc_clearance + 1)
         if np.any(state.units_matrix[y_min:y_max, x_min:x_max] > 0):
