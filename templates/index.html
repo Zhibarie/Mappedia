@@ -977,6 +977,13 @@ footer .btn { flex: 1; min-height: 44px; }
   .preset-grid {
     grid-template-columns: repeat(2, minmax(82px, 1fr));
   }
+  .preset-btn {
+    min-height: 50px;
+    max-height: 64px;
+    padding: 6px 3px;
+  }
+  .pe { font-size: 1.05rem; }
+  .pn { font-size: .55rem; }
 
   .tab-btn {
     padding: 0 10px;
@@ -1076,9 +1083,9 @@ footer .btn { flex: 1; min-height: 44px; }
       <canvas id="overlay-canvas"></canvas>
     </div>
     <div id="canvas-toolbar">
-      <button class="ctool-btn" onclick="zoom(1.3)" title="Zoom In">+</button>
-      <button class="ctool-btn" onclick="zoom(1/1.3)" title="Zoom Out">−</button>
-      <button class="ctool-btn" onclick="zoomReset()" title="Fit">⊙</button>
+      <button class="ctool-btn" data-zoom-action="in" title="Zoom In">+</button>
+      <button class="ctool-btn" data-zoom-action="out" title="Zoom Out">−</button>
+      <button class="ctool-btn" data-zoom-action="reset" title="Fit">⊙</button>
     </div>
   </div>
 
@@ -1510,9 +1517,9 @@ footer .btn { flex: 1; min-height: 44px; }
 <div id="quick-page">
   <div id="quick-canvas-wrap">
     <div id="quick-toolbar">
-      <button class="ctool-btn" onclick="zoomQuick(1.25)" title="Quick Zoom In">+</button>
-      <button class="ctool-btn" onclick="zoomQuick(1/1.25)" title="Quick Zoom Out">−</button>
-      <button class="ctool-btn" onclick="zoomQuickReset()" title="Quick Fit">⊙</button>
+      <button class="ctool-btn" data-qzoom-action="in" title="Quick Zoom In">+</button>
+      <button class="ctool-btn" data-qzoom-action="out" title="Quick Zoom Out">−</button>
+      <button class="ctool-btn" data-qzoom-action="reset" title="Quick Fit">⊙</button>
     </div>
     <canvas id="quick-canvas"></canvas>
   </div>
@@ -2290,6 +2297,33 @@ function zoomReset(){
   const w = $("canvas-wrap");
   if (w) { w.scrollLeft = 0; w.scrollTop = 0; }
   redraw();
+}
+
+function setupZoomControls(){
+  const toolbar=$("canvas-toolbar");
+  if(toolbar && !S._listeners.zoom){
+    S._listeners.zoom=true;
+    toolbar.addEventListener("click",(e)=>{
+      const btn=e.target.closest("[data-zoom-action]");
+      if(!btn) return;
+      const action=btn.getAttribute("data-zoom-action");
+      if(action==="in") zoom(1.3);
+      else if(action==="out") zoom(1/1.3);
+      else if(action==="reset") zoomReset();
+    });
+  }
+  const qToolbar=$("quick-toolbar");
+  if(qToolbar && !S._listeners.qzoom){
+    S._listeners.qzoom=true;
+    qToolbar.addEventListener("click",(e)=>{
+      const btn=e.target.closest("[data-qzoom-action]");
+      if(!btn) return;
+      const action=btn.getAttribute("data-qzoom-action");
+      if(action==="in") zoomQuick(1.25);
+      else if(action==="out") zoomQuick(1/1.25);
+      else if(action==="reset") zoomQuickReset();
+    });
+  }
 }
 let _resizeRAF=0;
 function _onViewportResize(){
@@ -3308,10 +3342,21 @@ function resizeSeedGrid(newSize){
   toast(`Grid ${newSize}×${newSize}`);
 }
 
+function enqueueLazy(fn){
+  if(typeof window.requestIdleCallback==="function"){
+    window.requestIdleCallback(()=>fn(), {timeout: 200});
+  }else{
+    setTimeout(fn, 16);
+  }
+}
+
 function buildPresets(){
   const wrap=$("preset-grid"); if(!wrap) return;
   wrap.innerHTML="";
-  PRESETS.forEach(p=>{
+  const presets=[...PRESETS];
+  const renderNext=()=>{
+    const p=presets.shift();
+    if(!p) return;
     const btn=document.createElement("button");
     btn.className="preset-btn";
     btn.innerHTML=`<span class="pe">${p.e}</span><span class="pn">${p.label}</span>`;
@@ -3323,7 +3368,9 @@ function buildPresets(){
       buildSeedGrid(); toast("Preset: "+p.label);
     };
     wrap.appendChild(btn);
-  });
+    enqueueLazy(renderNext);
+  };
+  renderNext();
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -3363,7 +3410,10 @@ function buildQSeedGrid(){
 function buildQPresets(){
   const wrap=$("q-preset-grid"); if(!wrap) return;
   wrap.innerHTML="";
-  PRESETS.forEach(p=>{
+  const presets=[...PRESETS];
+  const renderNext=()=>{
+    const p=presets.shift();
+    if(!p) return;
     const btn=document.createElement("button");
     btn.className="preset-btn";
     btn.innerHTML=`<span class="pe">${p.e}</span><span class="pn">${p.label}</span>`;
@@ -3375,7 +3425,9 @@ function buildQPresets(){
       buildQSeedGrid(); toast("Preset: "+p.label);
     };
     wrap.appendChild(btn);
-  });
+    enqueueLazy(renderNext);
+  };
+  renderNext();
 }
 
 // ═══════════════════════════════════════════════════════════
