@@ -1253,6 +1253,7 @@ footer .btn { flex: 1; min-height: 44px; }
       <div class="card">
         <h2>4 · Command Center</h2>
         <p>Tempatkan CC untuk setiap pemain. Tap di peta untuk manual.</p>
+        <button class="btn btn-yellow" id="btn-reheight">🔁 Regenerate Height</button>
         <div class="range-row">
           <div class="range-header"><span>Jumlah Pemain</span><span class="range-val" id="cv">4</span></div>
           <input type="range" id="cc-num" min="2" max="10" value="4" oninput="cv.textContent=this.value">
@@ -3306,8 +3307,7 @@ $("btn-recoast").onclick=async()=>{ await generateCoastline({stayOnCurrentStep:t
 
 // STEP 1 — (Hill drawing — handled by canvas events)
 
-// STEP 2 — Height
-$("btn-height").onclick=async()=>{
+async function generateHeightMap({stayOnCurrentStep=false}={}){
   showLoad("Generating height map…");
   try{
     const areaScale=(parseInt($("height-area")?.value||"5",10))/5;
@@ -3316,11 +3316,18 @@ $("btn-height").onclick=async()=>{
       oceanLevels:iv("ocean-lvl"),
       heightRegionScale: areaScale
     });
-    S.snap=res.snapshot; markDone(2); setStatus("Height map ✓");
+    S.snap=res.snapshot;
+    S.completed = Math.max(-1, parseInt(res.snapshot?.meta?.completed_step ?? 2, 10));
+    updateStepUI();
+    setStatus("Height map ✓");
     redraw(); toast("✅ Height map siap!");
   }catch(e){ toast("❌ "+e.message) }
   finally{ hideLoad() }
-};
+}
+
+// STEP 2 — Height
+$("btn-height").onclick=async()=>{ await generateHeightMap({stayOnCurrentStep:false}); };
+$("btn-reheight").onclick=async()=>{ await generateHeightMap({stayOnCurrentStep:true}); };
 
 // STEP 3 — CC
 $("btn-cc-rand").onclick=async()=>{
