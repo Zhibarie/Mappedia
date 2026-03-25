@@ -128,6 +128,24 @@ def _mirrored_canvas_positions(row, col, map_shape, seed_shape, mirroring):
     return placed, (rm_row, rm_col)
 
 
+def _region_penalty(state, r, c):
+    """Return a local penalty factor (>=1) from slope + region scale."""
+    slope_map = getattr(state, "region_slope_map", None)
+    base = float(np.clip(getattr(state, "height_region_scale", 1.0), 0.1, 3.0))
+    if slope_map is None:
+        return 1.0 + (base - 1.0) * 0.2
+    h, w = slope_map.shape
+    if not _in_bounds(r, c, h, w):
+        return 1.0
+    sv = float(np.clip(slope_map[int(r), int(c)], 0.0, 2.0))
+    return 1.0 + (base - 1.0) * 0.35 + sv * 0.55
+
+
+def _local_region_penalty(state, r, c):
+    """Legacy alias for older call-sites / stale runtime modules."""
+    return _region_penalty(state, r, c)
+
+
 def _stamp_approach_ramp(is_vertical, ec_r_min, ec_r_max, ec_c_left, ec_c_right,
                           H, W, read_hm, write_hm, approach_h, span_h, approach_depth,
                           write_id=None, approach_id=None):
@@ -607,7 +625,8 @@ def run_place_cc_manual(state: WizardState, row, col, mirrored=True):
         return [], 0
     if state.wall_matrix is not None and state.wall_matrix[row, col] == 1:
         return [], 0
-    if height_map[row, col] <= 0:
+    # Height 0 is valid lowest-ground terrain; only negative values are water.
+    if height_map[row, col] < 0:
         return [], 0
     if state.units_matrix is not None and state.units_matrix[row, col] > 0:
         return [], 0
@@ -618,7 +637,11 @@ def run_place_cc_manual(state: WizardState, row, col, mirrored=True):
         if np.any(state.items_matrix[y_min:y_max, x_min:x_max] != 0):
             return [], 0
     for pr, pc in placed:
-        if height_map[pr, pc] <= 0:
+        pr_rm = _scale_coord(pr, h, rm_h)
+        pc_rm = _scale_coord(pc, w, rm_w)
+        if randomized_matrix[pr_rm, pc_rm] != 1:
+            return [], 0
+        if height_map[pr, pc] < 0:
             return [], 0
         if state.wall_matrix is not None and state.wall_matrix[pr, pc] == 1:
             return [], 0
@@ -808,7 +831,8 @@ def run_place_resource_manual(state: WizardState, row, col, mirrored=True):
         return []
     if state.wall_matrix is not None and state.wall_matrix[row, col] == 1:
         return []
-    if height_map[row, col] <= 0:
+    # Height 0 is valid lowest-ground terrain; only negative values are water.
+    if height_map[row, col] < 0:
         return []
     if state.units_matrix is not None:
         cc_clearance = int(np.clip(np.ceil(4 * _local_region_penalty(state, row, col)), 4, 8))
@@ -819,7 +843,11 @@ def run_place_resource_manual(state: WizardState, row, col, mirrored=True):
 
     placed = []
     for sr, sc in mirrored_positions:
-        if height_map[sr, sc] <= 0:
+        sr_rm = _scale_coord(sr, h, rm_h)
+        sc_rm = _scale_coord(sc, w, rm_w)
+        if randomized_matrix[sr_rm, sc_rm] != 1:
+            continue
+        if height_map[sr, sc] < 0:
             continue
         if state.wall_matrix is not None and state.wall_matrix[sr, sc] == 1:
             continue
