@@ -358,13 +358,6 @@ def run_height_ocean(state: WizardState, seed=None, preview_cb=None):
 
     land_mask = height_map >= 1
     perlin_land = perlin_map[land_mask] if np.any(land_mask) else perlin_map.ravel()
-    # Secondary field helps distribute high-level clusters so they don't pile up in one massif.
-    balance_noise = perlin(height, width, octaves_num=4, seed=(seed + 1337))
-    balance_noise = _gaussian_filter(balance_noise, sigma=max(0.8, sigma * 0.6), mode='nearest')
-    bn_min, bn_max = float(np.min(balance_noise)), float(np.max(balance_noise))
-    if bn_max > bn_min:
-        balance_noise = (balance_noise - bn_min) / (bn_max - bn_min) - 0.5
-
     perlin_change = 1 / num_height_levels
     perlin_value = -0.5
     for level in range(2, num_height_levels + 1):
@@ -373,30 +366,12 @@ def run_height_ocean(state: WizardState, seed=None, preview_cb=None):
         q = max(0.0, min(1.0, 1.0 - ((level - 1) / max(1, num_height_levels))))
         min_p = float(np.quantile(perlin_land, q))
         min_dist_prev = max(2, int(round((2 + level * 0.55) * region_scale)))
-        candidate_mask = height_map == (level - 1)
-        forbidden_mask = height_map == (level - 2)
-        if np.any(forbidden_mask):
-            distance_ok = distance_transform_cdt(~forbidden_mask, metric='chessboard') > min_dist_prev
-        else:
-            distance_ok = np.ones_like(height_map, dtype=bool)
-
-        # Encourage multiple hill clusters: prefer cells farther from already-promoted same/higher levels.
-        hi_mask = height_map >= level
-        if np.any(hi_mask):
-            dist_hi = distance_transform_cdt(~hi_mask, metric='chessboard').astype(float)
-            dist_hi /= max(1.0, float(np.max(dist_hi)))
-        else:
-            dist_hi = np.ones_like(height_map, dtype=float)
-
-        score = perlin_map + (0.22 * balance_noise) + (0.20 * dist_hi)
-        score_land = score[candidate_mask & distance_ok]
-        if score_land.size == 0:
-            continue
-        # Keep similar fill ratio per level while using balanced score.
-        score_thr = float(np.quantile(score_land, q))
-        thr = max(max(perlin_value, min_p), score_thr - 0.08)
-        promote = candidate_mask & distance_ok & (score >= thr)
-        height_map[promote] = level
+        height_map = generate_level(
+            height_map, perlin_map, "height", level=level,
+            min_perlin_value=max(perlin_value, min_p),
+            min_distance_to_prev_level=min_dist_prev,
+            min_distance_to_next_level=max(3, int(round(4 * region_scale)))
+        )
         if preview_cb:
             preview_cb(f"height_level_{level}", height_map.copy())
 
