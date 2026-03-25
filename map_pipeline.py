@@ -840,6 +840,9 @@ def run_place_resource_manual(state: WizardState, row, col, mirrored=True):
     if state.items_matrix is None:
         state.items_matrix = np.zeros((h, w), dtype=int)
 
+    if not placed:
+        return []
+
     for sr, sc in placed:
         if state.items_matrix[sr, sc] == 0:
             place_resource_pull(state.items_matrix, sr, sc)
