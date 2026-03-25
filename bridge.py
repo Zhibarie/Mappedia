@@ -911,25 +911,7 @@ RPC_METHODS = {
 
 def rpc_call(method, params_json="{}"):
     if method not in RPC_METHODS: raise ValueError(f"Unknown RPC method: {method}")
-    return RPC_METHODS[method](params_json)            "current_step":   int(state.current_step),
-            "hill_drawing_mode": state.hill_drawing_mode,
-            "coast_smooth_passes": int(getattr(state, "coast_smooth_passes", 1)),
-            "custom_terrain_mapping_keys": list((getattr(state, "custom_terrain_mapping", None) or {}).keys()),
-            "bridge_tilesets": list(getattr(state, "bridge_tilesets", {}).keys()),
-            "active_bridge": getattr(state, "active_bridge_name", ""),
-        },
-        "cc_positions":       [[int(r),int(c)] for r,c in state.cc_positions],
-        "resource_positions": [[int(r),int(c)] for r,c in state.resource_positions],
-        "matrices": {
-            "coastline_height_map": _matrix_payload(state.coastline_height_map),
-            "wall_matrix":          _matrix_payload(state.wall_matrix),
-            "height_map":           _matrix_payload(state.height_map),
-            "id_matrix":            _matrix_payload(state.id_matrix),
-            "items_matrix":         _matrix_payload(state.items_matrix),
-            "units_matrix":         _matrix_payload(state.units_matrix),
-            "bridge_matrix":        _matrix_payload(getattr(state, "bridge_matrix", None)),
-        },
-    }
+    return RPC_METHODS[method](params_json)
 
 
 def _params(p):

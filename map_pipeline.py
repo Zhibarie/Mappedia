@@ -91,6 +91,43 @@ def _clear_resource_pool(items_matrix, r, c):
     items_matrix[max(0, r - 1):min(h, r + 2), max(0, c - 1):min(w, c + 2)] = 0
 
 
+def _in_bounds(row, col, h, w):
+    return 0 <= int(row) < h and 0 <= int(col) < w
+
+
+def _scale_coord(src_idx, src_size, dst_size):
+    """Scale index between matrices using cell-center mapping (less edge bias)."""
+    if src_size <= 0 or dst_size <= 0:
+        return 0
+    ratio = (int(src_idx) + 0.5) * (dst_size / src_size) - 0.5
+    return int(np.clip(np.rint(ratio), 0, dst_size - 1))
+
+
+def _mirrored_canvas_positions(row, col, map_shape, seed_shape, mirroring):
+    """Map a click on canvas grid into mirrored map coordinates."""
+    h, w = map_shape
+    rm_h, rm_w = seed_shape
+    if not _in_bounds(row, col, h, w):
+        return [], (-1, -1)
+
+    rm_row = _scale_coord(row, h, rm_h)
+    rm_col = _scale_coord(col, w, rm_w)
+    mirrored_rm = _get_mirrored_positions(rm_row, rm_col, rm_h, rm_w, mirroring)
+
+    placed = []
+    seen = set()
+    for mr, mc in mirrored_rm:
+        sr = _scale_coord(mr, rm_h, h)
+        sc = _scale_coord(mc, rm_w, w)
+        key = (sr, sc)
+        if key in seen:
+            continue
+        seen.add(key)
+        placed.append(key)
+
+    return placed, (rm_row, rm_col)
+
+
 def _stamp_approach_ramp(is_vertical, ec_r_min, ec_r_max, ec_c_left, ec_c_right,
                           H, W, read_hm, write_hm, approach_h, span_h, approach_depth,
                           write_id=None, approach_id=None):
@@ -539,16 +576,19 @@ def run_place_cc_manual(state: WizardState, row, col, mirrored=True):
     randomized_matrix = state.randomized_matrix
     rm_h, rm_w = randomized_matrix.shape
 
-    rm_row = int(row * rm_h / h)
-    rm_col = int(col * rm_w / w)
-
-    if rm_row < 0 or rm_row >= rm_h or rm_col < 0 or rm_col >= rm_w:
+    row, col = int(row), int(col)
+    if not _in_bounds(row, col, h, w):
         return [], 0
+    placed, (rm_row, rm_col) = _mirrored_canvas_positions(
+        row, col, (h, w), (rm_h, rm_w), mirroring
+    )
     if randomized_matrix[rm_row, rm_col] != 1:
         return [], 0
     if state.wall_matrix is not None and state.wall_matrix[row, col] == 1:
         return [], 0
     if height_map[row, col] <= 0:
+        return [], 0
+    if state.units_matrix is not None and state.units_matrix[row, col] > 0:
         return [], 0
     if state.items_matrix is not None:
         cc_clearance = 2
@@ -556,14 +596,13 @@ def run_place_cc_manual(state: WizardState, row, col, mirrored=True):
         x_min = max(0, col - cc_clearance); x_max = min(w, col + cc_clearance + 1)
         if np.any(state.items_matrix[y_min:y_max, x_min:x_max] != 0):
             return [], 0
-
-    mirrored_rm = _get_mirrored_positions(rm_row, rm_col, rm_h, rm_w, mirroring)
-    scale_y = h / rm_h
-    scale_x = w / rm_w
-    placed = [
-        (min(int(mr * scale_y), h - 1), min(int(mc * scale_x), w - 1))
-        for mr, mc in mirrored_rm
-    ]
+    for pr, pc in placed:
+        if height_map[pr, pc] <= 0:
+            return [], 0
+        if state.wall_matrix is not None and state.wall_matrix[pr, pc] == 1:
+            return [], 0
+        if state.units_matrix is not None and state.units_matrix[pr, pc] > 0:
+            return [], 0
 
     if state.units_matrix is None:
         state.units_matrix = np.zeros((h, w), dtype=int)
@@ -738,11 +777,12 @@ def run_place_resource_manual(state: WizardState, row, col, mirrored=True):
     randomized_matrix = state.randomized_matrix
     rm_h, rm_w = randomized_matrix.shape
 
-    rm_row = int(row * rm_h / h)
-    rm_col = int(col * rm_w / w)
-
-    if rm_row < 0 or rm_row >= rm_h or rm_col < 0 or rm_col >= rm_w:
+    row, col = int(row), int(col)
+    if not _in_bounds(row, col, h, w):
         return []
+    mirrored_positions, (rm_row, rm_col) = _mirrored_canvas_positions(
+        row, col, (h, w), (rm_h, rm_w), mirroring
+    )
     if randomized_matrix[rm_row, rm_col] != 1:
         return []
     if state.wall_matrix is not None and state.wall_matrix[row, col] == 1:
@@ -756,17 +796,24 @@ def run_place_resource_manual(state: WizardState, row, col, mirrored=True):
         if np.any(state.units_matrix[y_min:y_max, x_min:x_max] > 0):
             return []
 
-    mirrored_rm = _get_mirrored_positions(rm_row, rm_col, rm_h, rm_w, mirroring)
-    scale_y = h / rm_h
-    scale_x = w / rm_w
-
     placed = []
-    for mr, mc in mirrored_rm:
-        sr = min(int(mr * scale_y), h - 1)
-        sc = min(int(mc * scale_x), w - 1)
+    for sr, sc in mirrored_positions:
+        if height_map[sr, sc] <= 0:
+            continue
+        if state.wall_matrix is not None and state.wall_matrix[sr, sc] == 1:
+            continue
         # Skip if too close to an already placed position in this mirror group
         if any(abs(pr - sr) <= 3 and abs(pc - sc) <= 3 for pr, pc in placed):
             continue
+        y_min = max(0, sr - 1); y_max = min(h, sr + 2)
+        x_min = max(0, sc - 1); x_max = min(w, sc + 2)
+        if state.items_matrix is not None and np.any(state.items_matrix[y_min:y_max, x_min:x_max] != 0):
+            continue
+        if state.units_matrix is not None:
+            y_min2 = max(0, sr - 4); y_max2 = min(h, sr + 5)
+            x_min2 = max(0, sc - 4); x_max2 = min(w, sc + 5)
+            if np.any(state.units_matrix[y_min2:y_max2, x_min2:x_max2] > 0):
+                continue
         placed.append((sr, sc))
 
     if state.items_matrix is None:
