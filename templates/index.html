@@ -1137,6 +1137,7 @@ footer .btn { flex: 1; min-height: 44px; }
       <div class="card">
         <h2>2 · Hill / Bridge Drawing</h2>
         <p>Gambar bukit, dinding, atau jembatan. Opsional.</p>
+        <button class="btn btn-yellow" id="btn-recoast">🔁 Regenerate Coastline</button>
 
         <div class="mode-tabs">
           <button class="mode-tab active" id="tab-brush"  onclick="setHillMode('brush')">🖌 Brush</button>
@@ -3276,8 +3277,7 @@ $("btn-next").onclick=()=>{
 //  STEP ACTIONS
 // ═══════════════════════════════════════════════════════════
 
-// STEP 0 — Coastline
-$("btn-coast").onclick=async()=>{
+async function generateCoastline({stayOnCurrentStep=false}={}){
   showLoad("Generating coastline…");
   const pattern=iv("c-ts");
   await loadTilesets(pattern);
@@ -3290,13 +3290,19 @@ $("btn-coast").onclick=async()=>{
       shoreline_smoothness: smooth/9.0,
     });
     S.snap=res.snapshot;
-    markDone(0); setStatus("Coastline ✓");
+    S.completed = Math.max(-1, parseInt(res.snapshot?.meta?.completed_step ?? 0, 10));
+    updateStepUI();
+    setStatus("Coastline ✓");
     hideLoad();
     if(res.frames&&res.frames.length){ playAnimation(res.frames); toast("Coastline generating…⚡") }
     else{ redraw(); toast("✅ Coastline siap!") }
-    goTo(1);
+    if(!stayOnCurrentStep) goTo(1);
   }catch(e){ hideLoad(); toast("❌ "+e.message) }
-};
+}
+
+// STEP 0 — Coastline
+$("btn-coast").onclick=async()=>{ await generateCoastline({stayOnCurrentStep:false}); };
+$("btn-recoast").onclick=async()=>{ await generateCoastline({stayOnCurrentStep:true}); };
 
 // STEP 1 — (Hill drawing — handled by canvas events)
 
