@@ -22,7 +22,6 @@ from procedural_map_generator_functions import (
     mirror,
     scale_matrix,
     perlin,
-    generate_level,
     add_resource_pulls,
     add_command_centers,
     smooth_terrain_tiles,
@@ -388,7 +387,40 @@ def run_height_ocean(state: WizardState, seed=None, preview_cb=None):
             min_distance_to_next_level=max(3, int(round(5 * region_scale)))
         )
         if preview_cb:
-            preview_cb(f"ocean_level_{level}", height_map.copy())
+            preview_cb("ocean_quantized", height_map.copy())
+
+    # Consolidation pass: median/weighted smoothing while preserving sign (land vs sea).
+    for _ in range(max(2, int(round(2 + region_scale)))):
+        med = _median_filter(height_map, size=3, mode='nearest')
+        if np.any(land_mask):
+            blended_land = np.round(0.72 * height_map[land_mask] + 0.28 * med[land_mask]).astype(int)
+            height_map[land_mask] = np.clip(blended_land, 1, num_height_levels)
+        if np.any(sea_mask) and num_ocean_levels > 0:
+            sea_abs = np.abs(height_map[sea_mask]).astype(float)
+            sea_med_abs = np.abs(med[sea_mask]).astype(float)
+            blended_sea = np.round(0.72 * sea_abs + 0.28 * sea_med_abs).astype(int)
+            height_map[sea_mask] = -np.clip(blended_sea, 1, num_ocean_levels)
+
+    # Remove tiny fragmented spots for both land and ocean levels.
+    min_comp = max(8, int((height * width) * (0.0010 * region_scale)))
+    for lvl in range(num_height_levels, 1, -1):
+        comp_mask = height_map == lvl
+        if not np.any(comp_mask):
+            continue
+        labels, n = _label_segments(comp_mask)
+        for lab in range(1, n + 1):
+            comp = labels == lab
+            if int(np.sum(comp)) < min_comp:
+                height_map[comp] = lvl - 1
+    for lvl in range(-num_ocean_levels, -1):
+        comp_mask = height_map == lvl
+        if not np.any(comp_mask):
+            continue
+        labels, n = _label_segments(comp_mask)
+        for lab in range(1, n + 1):
+            comp = labels == lab
+            if int(np.sum(comp)) < min_comp:
+                height_map[comp] = lvl + 1
 
     # Consolidation pass: reduce patchy speckles while preserving broad variation.
     for _ in range(max(1, int(round(1 + region_scale)))):
