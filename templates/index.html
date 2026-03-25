@@ -2627,32 +2627,68 @@ function canvasXY(e){
   return [r, c, px, py];
 }
 
+function _eventPoint(e){
+  const t = (e.touches && e.touches[0]) || (e.changedTouches && e.changedTouches[0]) || e;
+  return { x: t?.clientX ?? 0, y: t?.clientY ?? 0 };
+}
+
+function bindTouchGestureHandlers(el, handlers){
+  if(!el) return;
+  let touching=false;
+  let lastCell=null;
+
+  el.addEventListener("touchstart",e=>{
+    if(e.touches.length===0) return;
+    e.preventDefault();
+    touching=true;
+    lastCell=null;
+    handlers.onStart?.(e);
+  },{passive:false});
+
+  el.addEventListener("touchmove",e=>{
+    if(!touching) return;
+    e.preventDefault();
+    handlers.onMove?.(e,lastCell,(cell)=>{ lastCell=cell; });
+  },{passive:false});
+
+  const end=(e)=>{
+    if(!touching) return;
+    e.preventDefault();
+    touching=false;
+    lastCell=null;
+    handlers.onEnd?.(e);
+  };
+  el.addEventListener("touchend",end,{passive:false});
+  el.addEventListener("touchcancel",end,{passive:false});
+}
+
 function setupCanvasEvents(){
   const cv=getCanvas();
 
-  cv.addEventListener("touchstart",e=>{
-    e.preventDefault();
+  bindTouchGestureHandlers(cv,{
+    onStart:(e)=>{
     const[r,c]=canvasXY(e);
     _drawing=true; _lastPts=[[r,c]];
     handleCanvasDown(r,c);
-  },{passive:false});
-
-  cv.addEventListener("touchmove",e=>{
-    e.preventDefault();
-    if(!_drawing) return;
-    const[r,c]=canvasXY(e);
-    const last=_lastPts[_lastPts.length-1];
-    if(last[0]!==r||last[1]!==c){ _lastPts.push([r,c]); handleCanvasMove(r,c) }
-  },{passive:false});
-
-  cv.addEventListener("touchend",e=>{
-    e.preventDefault();
-    _drawing=false;
-    if(_lastPts.length>0) flushBrushBatch();
-    if(_bridgeDrawing) flushBridgeStroke();
-    _bridgeDrawing=false;
-    _lastPts=[];
-  },{passive:false});
+    },
+    onMove:(e,last,setLast)=>{
+      if(!_drawing) return;
+      const[r,c]=canvasXY(e);
+      const prev=last||_lastPts[_lastPts.length-1];
+      if(!prev||prev[0]!==r||prev[1]!==c){
+        _lastPts.push([r,c]);
+        setLast([r,c]);
+        handleCanvasMove(r,c);
+      }
+    },
+    onEnd:()=>{
+      _drawing=false;
+      if(_lastPts.length>0) flushBrushBatch();
+      if(_bridgeDrawing) flushBridgeStroke();
+      _bridgeDrawing=false;
+      _lastPts=[];
+    }
+  });
 
   cv.addEventListener("mousedown",e=>{
     _drawing=true; _lastPts=[];
@@ -3482,6 +3518,51 @@ function zoomQuickReset(){
   applyQuickZoom();
 }
 
+let _quickPinchDist=0;
+let _quickPanStart=null;
+function setupQuickCanvasTouch(){
+  const wrap=$("quick-canvas-wrap");
+  const canvas=$("quick-canvas");
+  if(!wrap||!canvas) return;
+
+  bindTouchGestureHandlers(canvas,{
+    onStart:(e)=>{
+      if(e.touches.length===2){
+        const a=e.touches[0], b=e.touches[1];
+        const dx=a.clientX-b.clientX, dy=a.clientY-b.clientY;
+        _quickPinchDist=Math.hypot(dx,dy);
+        _quickPanStart=null;
+        return;
+      }
+      _quickPinchDist=0;
+      const p=_eventPoint(e);
+      _quickPanStart={x:p.x,y:p.y,left:wrap.scrollLeft,top:wrap.scrollTop};
+    },
+    onMove:(e)=>{
+      if(e.touches.length===2){
+        const a=e.touches[0], b=e.touches[1];
+        const dx=a.clientX-b.clientX, dy=a.clientY-b.clientY;
+        const d=Math.hypot(dx,dy);
+        if(_quickPinchDist>0){
+          const factor=d/_quickPinchDist;
+          S.qZoomScale=Math.max(0.5,Math.min(6,(S.qZoomScale||1)*factor));
+          applyQuickZoom();
+        }
+        _quickPinchDist=d;
+        return;
+      }
+      if(!_quickPanStart) return;
+      const p=_eventPoint(e);
+      wrap.scrollLeft=_quickPanStart.left-(p.x-_quickPanStart.x);
+      wrap.scrollTop=_quickPanStart.top-(p.y-_quickPanStart.y);
+    },
+    onEnd:()=>{
+      _quickPanStart=null;
+      _quickPinchDist=0;
+    }
+  });
+}
+
 // ═══════════════════════════════════════════════════════════
 //  QUICK GENERATE
 // ═══════════════════════════════════════════════════════════
@@ -4012,6 +4093,7 @@ function init(){
   buildQPresets();
   buildQSeedGrid();
   setupPinchZoom();
+  setupQuickCanvasTouch();
   buildUnitTypeGrid();
   renderUnitDeclarations();
 
