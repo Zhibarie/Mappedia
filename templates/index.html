@@ -1731,7 +1731,7 @@ const S = {
   animTimer:null, animFrames:[], animIdx:0,
   quickTmx:null,
   placeMode:"unit",   // "unit" | "item"  — active sub-mode for step 5
-  _listeners:{canvas:false,pinch:false,quickReady:false,zoom:false,qzoom:false},
+  _listeners:{canvas:false,pinch:false,quickReady:false},
 };
 
 // ═══════════════════════════════════════════════════════════
@@ -4303,7 +4303,6 @@ function init(){
   buildPresets();
   buildSeedGrid();
   buildBrushSizes();
-  setupZoomControls();
   setupPinchZoom();
   setupQuickCanvasTouch();
   buildUnitTypeGrid();
