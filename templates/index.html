@@ -1805,7 +1805,10 @@ let tileSize=2;
 function computeTileSize(w, h) {
   const wrap = $("canvas-wrap");
   const wrapW = wrap ? wrap.clientWidth : 300;
-  return (wrapW / w) * S.zoomScale;
+  const wrapH = wrap ? Math.max(1, wrap.clientHeight) : Math.max(1, h);
+  const fitW = wrapW / Math.max(1, w);
+  const fitH = wrapH / Math.max(1, h);
+  return Math.min(fitW, fitH) * S.zoomScale;
 }
 
 function setupCanvas(w, h) {
@@ -2226,6 +2229,11 @@ function zoomReset(){
   if (w) { w.scrollLeft = 0; w.scrollTop = 0; }
   redraw();
 }
+window.addEventListener("resize", ()=>{
+  if(!S.snap) return;
+  if(S.zoomScale<=1.05) S.zoomScale=1;
+  redraw();
+});
 
 // Pinch-to-zoom on mobile
 let _pinchDist=0;
