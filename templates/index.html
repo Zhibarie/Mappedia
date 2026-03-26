@@ -1076,9 +1076,9 @@ footer .btn { flex: 1; min-height: 44px; }
       <canvas id="overlay-canvas"></canvas>
     </div>
     <div id="canvas-toolbar">
-      <button class="ctool-btn" onclick="zoom(1.3)" title="Zoom In">+</button>
-      <button class="ctool-btn" onclick="zoom(1/1.3)" title="Zoom Out">−</button>
-      <button class="ctool-btn" onclick="zoomReset()" title="Fit">⊙</button>
+      <button class="ctool-btn" id="btn-zoom-in" onclick="zoom(1.3)" title="Zoom In">+</button>
+      <button class="ctool-btn" id="btn-zoom-out" onclick="zoom(1/1.3)" title="Zoom Out">−</button>
+      <button class="ctool-btn" id="btn-zoom-reset" onclick="zoomReset()" title="Fit">⊙</button>
     </div>
   </div>
 
@@ -1510,9 +1510,9 @@ footer .btn { flex: 1; min-height: 44px; }
 <div id="quick-page">
   <div id="quick-canvas-wrap">
     <div id="quick-toolbar">
-      <button class="ctool-btn" onclick="zoomQuick(1.25)" title="Quick Zoom In">+</button>
-      <button class="ctool-btn" onclick="zoomQuick(1/1.25)" title="Quick Zoom Out">−</button>
-      <button class="ctool-btn" onclick="zoomQuickReset()" title="Quick Fit">⊙</button>
+      <button class="ctool-btn" id="btn-qzoom-in" onclick="zoomQuick(1.25)" title="Quick Zoom In">+</button>
+      <button class="ctool-btn" id="btn-qzoom-out" onclick="zoomQuick(1/1.25)" title="Quick Zoom Out">−</button>
+      <button class="ctool-btn" id="btn-qzoom-reset" onclick="zoomQuickReset()" title="Quick Fit">⊙</button>
     </div>
     <canvas id="quick-canvas"></canvas>
   </div>
@@ -2273,6 +2273,25 @@ function zoomReset(){
   if (w) { w.scrollLeft = 0; w.scrollTop = 0; }
   redraw();
 }
+const _boundClickIds = new Set();
+function bindClick(id, fn){
+  const el=$(id);
+  if(!el || typeof fn!=="function") return false;
+  el.addEventListener("click", fn);
+  _boundClickIds.add(id);
+  return true;
+}
+let _zoomHandlersBound=false;
+function setupZoomControls(){
+  if(_zoomHandlersBound) return;
+  _zoomHandlersBound=true;
+  bindClick("btn-zoom-in",()=>zoom(1.3));
+  bindClick("btn-zoom-out",()=>zoom(1/1.3));
+  bindClick("btn-zoom-reset",()=>zoomReset());
+  bindClick("btn-qzoom-in",()=>zoomQuick(1.25));
+  bindClick("btn-qzoom-out",()=>zoomQuick(1/1.25));
+  bindClick("btn-qzoom-reset",()=>zoomQuickReset());
+}
 let _resizeRAF=0;
 function _onViewportResize(){
   if(_resizeRAF) cancelAnimationFrame(_resizeRAF);
@@ -2667,16 +2686,18 @@ function canvasXY(e){
   let cx, cy;
   if (e.touches && e.touches.length) { cx = e.touches[0].clientX; cy = e.touches[0].clientY; }
   else { cx = e.clientX; cy = e.clientY; }
-  const dx = cx - rect.left;   // display px from left
-  const dy = cy - rect.top;    // display px from top
-  // Recompute tileSize from actual rendered size (handles zoom + reflow)
-  const ts = rect.width / cv.width;
+  // Clamp cursor to canvas bounds to make edge taps (left/right/bottom) reliable.
+  const dx = Math.max(0, Math.min(rect.width  - 0.001, cx - rect.left));
+  const dy = Math.max(0, Math.min(rect.height - 0.001, cy - rect.top));
+  // Use independent axis scale so rounded canvas height never creates bottom gaps.
+  const tsX = Math.max(0.0001, rect.width / Math.max(1, cv.width));
+  const tsY = Math.max(0.0001, rect.height / Math.max(1, cv.height));
   const mapW = cv.width, mapH = cv.height;
-  const c = Math.max(0, Math.min(mapW-1, Math.floor(dx / ts)));
-  const r = Math.max(0, Math.min(mapH-1, Math.floor(dy / ts)));
+  const c = Math.max(0, Math.min(mapW-1, Math.floor(dx / tsX)));
+  const r = Math.max(0, Math.min(mapH-1, Math.floor(dy / tsY)));
   // Internal coords for direct ctx usage
-  const px = Math.max(0, Math.min(mapW, dx / ts));
-  const py = Math.max(0, Math.min(mapH, dy / ts));
+  const px = Math.max(0, Math.min(mapW, dx / tsX));
+  const py = Math.max(0, Math.min(mapH, dy / tsY));
   return [r, c, px, py];
 }
 
@@ -4132,6 +4153,57 @@ function showImportMsg(msg,type){
   el.className="import-msg "+(type||""); el.style.display="";
 }
 
+let _inlineFallbackInstalled=false;
+function installInlineOnclickFallback(){
+  if(_inlineFallbackInstalled) return;
+  _inlineFallbackInstalled=true;
+  // Fallback for environments where inline onclick attrs are blocked/ignored.
+  document.addEventListener("click",(event)=>{
+    const el=event.target?.closest?.("[onclick]");
+    if(!el) return;
+    if(typeof el.onclick==="function") return; // native inline binding works
+    const code=el.getAttribute("onclick");
+    if(!code) return;
+    event.preventDefault();
+    try{
+      (new Function("event", code)).call(el, event);
+    }catch(err){
+      const msg = `onclick fallback error: ${err?.message || err}`;
+      setStatus(msg);
+      toast("⚠️ " + msg, 2800);
+    }
+  }, true);
+}
+
+function auditUIButtonBindings(){
+  const mustHave = [
+    "btn-zoom-in","btn-zoom-out","btn-zoom-reset",
+    "btn-qzoom-in","btn-qzoom-out","btn-qzoom-reset",
+    "btn-back","btn-next","btn-coast","btn-height",
+    "btn-cc-rand","btn-res-rand","btn-export","btn-newmap",
+  ];
+  const delegated = new Set(["btn-preview-dl","btn-do-import-terrain","btn-import-terrain","btn-import-all"]);
+  const missing = [];
+  for(const id of mustHave){
+    const el=$(id);
+    if(!el){ missing.push(`${id} (missing element)`); continue; }
+    const hasInline = !!el.getAttribute("onclick") || typeof el.onclick==="function";
+    const hasBound = _boundClickIds.has(id);
+    const isDelegated = delegated.has(id);
+    if(!hasInline && !hasBound && !isDelegated){
+      missing.push(`${id} (no click binding)`);
+    }
+  }
+  if(missing.length){
+    const msg = `[ui-audit] unresolved: ${missing.join(", ")}`;
+    setStatus(msg);
+    toast("⚠️ UI audit menemukan tombol belum terikat", 2600);
+  }else{
+    setStatus("[ui-audit] critical button bindings OK");
+  }
+  return missing;
+}
+
 // ═══════════════════════════════════════════════════════════
 //  INIT
 // ═══════════════════════════════════════════════════════════
@@ -4155,6 +4227,8 @@ function updateSizeWarn(h, w, warnId){
 }
 
 function init(){
+  installInlineOnclickFallback();
+  setupZoomControls();
   buildPresets();
   buildSeedGrid();
   buildBrushSizes();
@@ -4162,6 +4236,7 @@ function init(){
   buildQSeedGrid();
   setupPinchZoom();
   setupQuickCanvasTouch();
+  auditUIButtonBindings();
   buildUnitTypeGrid();
   renderUnitDeclarations();
 
